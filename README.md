@@ -1,6 +1,10 @@
 # TBInfrastructure
 Helper Class for FileIO and Zipfiles
 
+It's based on PCLStorage, SharpZipLib and json.net
+
+*Important* PCLStorage must be added to all platform projects in your solution
+
 Here an overview of the methods
 
 ```c#
