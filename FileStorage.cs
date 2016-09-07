@@ -1,3 +1,6 @@
+// Copyright: Thomas Burkhart 2016
+// Licence: MIT
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,13 +11,23 @@ using ICSharpCode.SharpZipLib.Zip;
 using Newtonsoft.Json;
 using PCLStorage;
 
+// This is a helper class to ease file IO based on PCLStorage
+// Mainly it offers Object Serialization/Deserialization, ZIP-File 
+// handling and some convinience functions
+//
+// It's implemented as singleton so easy to use from everywhere
+//
+// IMPORTANT!!!
+//
+// If not otherwise mentioned are all file paths relative to the Apps data directory
+//
+
 namespace TBInfrastructure
 {
+    
     public class FileStorage
     {
         private readonly IFolder appBasefolder; 
-
-        public string AppBaseFolderPath;
         private JsonWriter zipFileJsonWriter;
         private StreamWriter zipStreamWriter;
 
@@ -22,13 +35,20 @@ namespace TBInfrastructure
         private Stream zipOutFileStream;
         private ZipOutputStream zipOutputStream;
 
+        // If you need the full path to the Apps data directory, this is where you can get it
+        public string AppBaseFolderPath { get; set; }
+
+
         private FileStorage()
         {
             appBasefolder = FileSystem.Current.LocalStorage;
             AppBaseFolderPath = appBasefolder.Path;
         }
 
+        //Singleton
         public static FileStorage Instance { get; } = new FileStorage();
+
+
 
         public async Task<bool> CheckDirectoryExists(string path)
         {
@@ -47,21 +67,17 @@ namespace TBInfrastructure
             await appBasefolder.CreateFolderAsync(path, CreationCollisionOption.FailIfExists);
         }
 
-        public async Task<List<string>> GetZipFilesInFolder(string folder)
+        public async Task DeleteFile(string path)
         {
-            var fileNames = new List<string>();
-            var zipFolder = await appBasefolder.GetFolderAsync(folder);
-            var files = await zipFolder.GetFilesAsync();
-            foreach (var file in files)
+            if (await appBasefolder.CheckExistsAsync(path) == ExistenceCheckResult.FileExists)
             {
-                if (file.Name.Contains(".zip"))
-                {
-                    fileNames.Add(file.Name);
-                }
+                var file = await appBasefolder.GetFileAsync(path);
+                await file.DeleteAsync();
             }
-            return fileNames;
         }
 
+
+        //Deserializes a json-file into a provided object type
         public async Task<object> GetObjectFromFile(string jsonFileName, Type type)
         {
             var jsonFile = await appBasefolder.GetFileAsync(jsonFileName);
@@ -75,7 +91,8 @@ namespace TBInfrastructure
 
 
 
-        public async Task SaveObjectToFile(string jsonFileName, object objectToWrite, Type type)
+        //Serializes an object to a json-file
+        public async Task SaveObjectToFile(string jsonFileName, object objectToWrite)
         {
             var jsonFile = await appBasefolder.CreateFileAsync(jsonFileName, CreationCollisionOption.ReplaceExisting);
             var jsonStream = await jsonFile.OpenAsync(FileAccess.ReadAndWrite);
@@ -93,16 +110,9 @@ namespace TBInfrastructure
         }
 
 
-        public async Task DeleteFile(string path)
-        {
-            if (await appBasefolder.CheckExistsAsync(path) == ExistenceCheckResult.FileExists)
-            {
-                var file = await appBasefolder.GetFileAsync(path);
-                await file.DeleteAsync();
-            }
-        }
 
-
+        // Very handy function for the first App start
+        // It will download a Zipfile and extracts it to the provided folder
         public async Task PopulateDataFolderFromZipUri(string uri, string outFolder)
         {
             using (var httpClient = new HttpClient())
@@ -122,7 +132,24 @@ namespace TBInfrastructure
             }
         }
 
-        #region ZIP
+        #region ZIP Methods
+
+        // Returns a list of all Zip-Files in a folder
+        public async Task<List<string>> GetZipFilesInFolder(string folder)
+        {
+            var fileNames = new List<string>();
+            var zipFolder = await appBasefolder.GetFolderAsync(folder);
+            var files = await zipFolder.GetFilesAsync();
+            foreach (var file in files)
+            {
+                if (file.Name.Contains(".zip"))
+                {
+                    fileNames.Add(file.Name);
+                }
+            }
+            return fileNames;
+        }
+
 
         public async Task  ExtractZipFile(string archiveFilenameIn, string outFolder)
         {
@@ -180,7 +207,12 @@ namespace TBInfrastructure
         }
 
 
-
+        // The following functions are for creating a new ZIP-File
+        // You can only create one ZIP-File at a time
+        // The Sequence goes like this
+        // 1. Call CreateNewZipFile to initiate the creation
+        // 2. Call any of the Writefunction as often you like
+        // 3. Call WriteAndCloseZipFile to flush and close the ZIP-File
 
         public async Task CreateNewZipFile(string path)
         {
@@ -192,71 +224,7 @@ namespace TBInfrastructure
             zipFileJsonWriter = new JsonTextWriter(zipStreamWriter);
         }
 
-
-        // After this ZipFile has to be new Created
-        public void WriteAndCloseZipFile()
-        {
-            zipOutputStream.Finish();
-
-            zipOutputStream = null;
-
-            zipOutFileStream.Dispose();
-            zipOutFileStream = null;
-
-            zipStreamWriter = null;
-            zipOutFile = null;
-            zipFileJsonWriter = null;
-        }
-
-
-        public async Task<Stream> GetFileStreamFromZip(string zipFilePath, string pathInZip)
-        {
-            var zipInFile = await appBasefolder.GetFileAsync(zipFilePath);
-            var zipInFileStream = await zipInFile.OpenAsync(FileAccess.Read);
-
-            var zipFile = new ZipFile(zipInFileStream);
-            var entry = zipFile.GetEntry(pathInZip);
-            return zipFile.GetInputStream(entry);
-        }
-
-
-        public async Task<Byte[]> GetByteArrayFromZip(string zipFilePath, string pathInZip)
-        {
-            var zipInFile = await appBasefolder.GetFileAsync(zipFilePath);
-            var zipInFileStream = await zipInFile.OpenAsync(FileAccess.Read);
-
-            var zipFile = new ZipFile(zipInFileStream);
-            var entry = zipFile.GetEntry(pathInZip);
-            var buffer = new Byte[entry.Size];
-            var zipStream = zipFile.GetInputStream(entry);
-
-            int bytesRead = await zipStream.ReadAsync(buffer, 0, (int)entry.Size);
-
-            if (bytesRead != entry.Size)
-            {
-                throw new Exception("ZipEntry not fully read");
-            }
-            zipInFileStream.Dispose();
-
-            return buffer;
-        }
-
-
-        public async Task<object> GetObjectFromZip(string zipFilePath, string pathInZip, Type type)
-        {
-            var inStream = await GetFileStreamFromZip(zipFilePath, pathInZip);
-            var json = new JsonSerializer();
-            Object deserializedObject;
-            using (var file = new StreamReader(inStream))
-            {
-                deserializedObject = json.Deserialize(file, type);
-            }
-            inStream.Dispose();
-            return deserializedObject;
-
-        }
-
-
+        // When writing already compresse data like JPEGs it's better to leave compressed = false
         public void WriteByteArray2Zip(string fileNameInZip, Byte[] buffer, bool compressed = false)
         {
             if (compressed)
@@ -319,6 +287,75 @@ namespace TBInfrastructure
 
             zipFileJsonWriter.Flush();
         }
+
+
+        // After this ZipFile has to be new Created
+        public void WriteAndCloseZipFile()
+        {
+            zipOutputStream.Finish();
+
+            zipOutputStream = null;
+
+            zipOutFileStream.Dispose();
+            zipOutFileStream = null;
+
+            zipStreamWriter = null;
+            zipOutFile = null;
+            zipFileJsonWriter = null;
+        }
+
+
+        // Gets a filestream for a file inside a ZIP-Archive
+        public async Task<Stream> GetFileStreamFromZip(string zipFilePath, string pathInZip)
+        {
+            var zipInFile = await appBasefolder.GetFileAsync(zipFilePath);
+            var zipInFileStream = await zipInFile.OpenAsync(FileAccess.Read);
+
+            var zipFile = new ZipFile(zipInFileStream);
+            var entry = zipFile.GetEntry(pathInZip);
+            return zipFile.GetInputStream(entry);
+        }
+
+        // Reads a byte array from a file inside a ZIP-Archive
+        public async Task<Byte[]> GetByteArrayFromZip(string zipFilePath, string pathInZip)
+        {
+            var zipInFile = await appBasefolder.GetFileAsync(zipFilePath);
+            var zipInFileStream = await zipInFile.OpenAsync(FileAccess.Read);
+
+            var zipFile = new ZipFile(zipInFileStream);
+            var entry = zipFile.GetEntry(pathInZip);
+            var buffer = new Byte[entry.Size];
+            var zipStream = zipFile.GetInputStream(entry);
+
+            int bytesRead = await zipStream.ReadAsync(buffer, 0, (int)entry.Size);
+
+            if (bytesRead != entry.Size)
+            {
+                throw new Exception("ZipEntry not fully read");
+            }
+            zipInFileStream.Dispose();
+
+            return buffer;
+        }
+
+
+        // Reads an object from a file inside a ZIP-Archive
+        public async Task<object> GetObjectFromZip(string zipFilePath, string pathInZip, Type type)
+        {
+            var inStream = await GetFileStreamFromZip(zipFilePath, pathInZip);
+            var json = new JsonSerializer();
+            Object deserializedObject;
+            using (var file = new StreamReader(inStream))
+            {
+                deserializedObject = json.Deserialize(file, type);
+            }
+            inStream.Dispose();
+            return deserializedObject;
+
+        }
+
+
+
 
         #endregion
     }
