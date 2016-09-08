@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using ICSharpCode.SharpZipLib.Core;
 using ICSharpCode.SharpZipLib.Zip;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using PCLStorage;
 
 // This is a helper class to ease file IO based on PCLStorage
@@ -78,14 +79,14 @@ namespace TBInfrastructure
 
 
         //Deserializes a json-file into a provided object type
-        public async Task<object> GetObjectFromFile(string jsonFileName, Type type)
+        public async Task<T> GetObjectFromFile<T>(string jsonFileName)
         {
             var jsonFile = await appBasefolder.GetFileAsync(jsonFileName);
             var jsonInFileStream = await jsonFile.OpenAsync(FileAccess.Read);
             var json = new JsonSerializer();
             using (var file = new StreamReader(jsonInFileStream))
             {
-                return json.Deserialize(file, type);
+                return (T) json.Deserialize(file, typeof(T));
             }
         }
 
@@ -340,14 +341,14 @@ namespace TBInfrastructure
 
 
         // Reads an object from a file inside a ZIP-Archive
-        public async Task<object> GetObjectFromZip(string zipFilePath, string pathInZip, Type type)
+        public async Task<T> GetObjectFromZip<T>(string zipFilePath, string pathInZip)
         {
             var inStream = await GetFileStreamFromZip(zipFilePath, pathInZip);
             var json = new JsonSerializer();
-            Object deserializedObject;
+            T deserializedObject;
             using (var file = new StreamReader(inStream))
             {
-                deserializedObject = json.Deserialize(file, type);
+                deserializedObject = (T) json.Deserialize(file, typeof(T));
             }
             inStream.Dispose();
             return deserializedObject;
