@@ -43,7 +43,7 @@ namespace TBInfrastructure
 
 
         //Deserializes a json-file into a provided object type
-        public async Task<object> GetObjectFromFile(string jsonFileName, Type type)
+        public async Task<T> GetObjectFromFile<T>(string jsonFileName)
 
 
         //Serializes an object to a json-file
@@ -97,7 +97,7 @@ namespace TBInfrastructure
 
 
         // Reads an object from a file inside a ZIP-Archive
-        public async Task<object> GetObjectFromZip(string zipFilePath, string pathInZip, Type type)
+        public async Task<T> GetObjectFromZip<T>(string zipFilePath, string pathInZip)
 
 
         #endregion
